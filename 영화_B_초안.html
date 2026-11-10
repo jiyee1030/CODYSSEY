@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>영화 티어리스트</title>
+<style>
+• { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+background: #1a1a2e;
+color: #eee;
+min-height: 100vh;
+padding: 20px;
+}
+header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 24px;
+padding-bottom: 16px;
+border-bottom: 2px solid #333;
+}
+h1 { font-size: 24px; }
+button {
+background: #e94560;
+color: white;
+border: none;
+padding: 8px 16px;
+border-radius: 6px;
+cursor: pointer;
+font-size: 14px;
+}
+button:hover { background: #c73651; }
+button.secondary { background: #0f3460; }
+button.secondary:hover { background: #16498a; }
+button.danger { background: #555; padding: 4px 8px; font-size: 12px; }
+
+/* 메인 화면 - 카드 목록 */
+.card-grid {
+display: grid;
+grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+gap: 16px;
+}
+.card {
+background: #16213e;
+border-radius: 10px;
+padding: 16px;
+cursor: pointer;
+transition: transform 0.15s;
+}
+.card:hover { transform: translateY(-3px); }
+.card h3 { margin-bottom: 10px; color: #fff; }
+.card .preview-tier {
+display: flex;
+align-items: center;
+gap: 6px;
+margin: 4px 0;
+font-size: 12px;
+}
+.card .tier-badge {
+width: 24px; height: 24px;
+border-radius: 4px;
+display: flex; align-items: center; justify-content: center;
+font-weight: bold; color: #000;
+flex-shrink: 0;
+}
+.card .preview-movies {
+color: #aaa;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.card-actions {
+display: flex;
+gap: 8px;
+margin-top: 12px;
+}
+
+/* 편집 화면 */
+.tier-row {
+display: flex;
+margin-bottom: 8px;
+background: #16213e;
+border-radius: 8px;
+overflow: hidden;
+min-height: 80px;
+}
+.tier-label {
+width: 80px;
+display: flex; align-items: center; justify-content: center;
+font-size: 32px; font-weight: bold; color: #000;
+flex-shrink: 0;
+}
+.tier-movies {
+flex: 1;
+padding: 10px;
+display: flex;
+flex-wrap: wrap;
+gap: 8px;
+align-items: flex-start;
+}
+.movie {
+background: #0f3460;
+padding: 8px 12px;
+border-radius: 6px;
+display: flex;
+align-items: center;
+gap: 8px;
+cursor: grab;
+}
+.movie.dragging { opacity: 0.4; }
+.movie button { padding: 2px 6px; font-size: 10px; background: #444; }
+
+.tier-movies.drag-over { background: rgba(233, 69, 96, 0.2); }
+
+/* 티어 색상 */
+.tier-S { background: #ff7f7f; }
+.tier-A { background: #ffbf7f; }
+.tier-B { background: #ffdf7f; }
+.tier-C { background: #bfff7f; }
+.tier-D { background: #7fbfff; }
+
+/* 입력창 */
+.add-movie {
+display: flex;
+gap: 8px;
+margin: 20px 0;
+}
+.add-movie input, .add-movie select {
+padding: 8px 12px;
+border-radius: 6px;
+border: 1px solid #444;
+background: #0f3460;
+color: white;
+font-size: 14px;
+}
+.add-movie input { flex: 1; }
+
+.empty {
+text-align: center;
+color: #888;
+padding: 40px;
+}
+
+/* 모달 */
+.modal-bg {
+position: fixed; inset: 0;
+background: rgba(0,0,0,0.6);
+display: none;
+align-items: center;
+justify-content: center;
+z-index: 100;
+}
+.modal-bg.show { display: flex; }
+.modal {
+background: #16213e;
+padding: 24px;
+border-radius: 10px;
+min-width: 320px;
+}
+.modal h2 { margin-bottom: 16px; }
+.modal input {
+width: 100%;
+padding: 10px;
+margin-bottom: 12px;
+border-radius: 6px;
+border: 1px solid #444;
+background: #0f3460;
+color: white;
+}
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+
+<header>
+<h1 id="pageTitle">🎬 내 티어리스트</h1>
+<div id="headerBtns"></div>
+</header>
+
+<main id="main"></main>
+
+<!-- 새 티어리스트 모달 -->
+<div class="modal-bg" id="newModal">
+<div class="modal">
+<h2>새 티어리스트 만들기</h2>
+<input type="text" id="newTitleInput" placeholder="제목을 입력하세요" />
+<div class="modal-actions">
+<button class="secondary" onclick="closeModal()">취소</button>
+<button onclick="createTierlist()">만들기</button>
+</div>
+</div>
+</div>
+
+<script>
+const TIERS = ['S', 'A', 'B', 'C', 'D'];
+const STORAGE_KEY = 'movie_tierlists';
+
+let state = { view: 'list', currentId: null };
+
+// ===== 데이터 관리 =====
+function loadData() {
+try {
+return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+} catch { return []; }
+}
+function saveData(data) {
+localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+function getTierlist(id) {
+return loadData().find(t => t.id === id);
+}
+function updateTierlist(id, updater) {
+const data = loadData();
+const idx = data.findIndex(t => t.id === id);
+if (idx >= 0) {
+updater(data[idx]);
+saveData(data);
+}
+}
+
+// ===== 라우팅: URL 해시 기반 공유 =====
+function parseHash() {
+const hash = location.hash.slice(1);
+if (hash.startsWith('edit/')) {
+state.view = 'edit';
+state.currentId = hash.slice(5);
+} else {
+state.view = 'list';
+state.currentId = null;
+}
+}
+
+window.addEventListener('hashchange', () => { parseHash(); render(); });
+
+// 다른 탭에서의 변경 감지 (실시간 동기화)
+window.addEventListener('storage', (e) => {
+if (e.key === STORAGE_KEY) render();
+});
+
+// ===== 렌더링 =====
+function render() {
+parseHash();
+if (state.view === 'list') renderList();
+else renderEdit();
+}
+
+function renderList() {
+document.getElementById('pageTitle').textContent = '🎬 내 티어리스트';
+document.getElementById('headerBtns').innerHTML =
+<button onclick="openModal()"&gt;+ 새로 만들기&lt;/button>;
+
+const data = loadData();
+const main = document.getElementById('main');
+
+if (data.length === 0) {
+main.innerHTML = <div class="empty"&gt;아직 티어리스트가 없어요. '새로 만들기'를 눌러 시작해 보세요!&lt;/div>;
+return;
+}
+
+main.innerHTML = <div class="card-grid"&gt;${data.map(tl => &lt;div class="card"&gt; &lt;h3 onclick="openEdit('${tl.id}')">{TIERS.map(t => &lt;div class="preview-tier"&gt; &lt;div class="tier-badge tier-${t}">${t}&lt;/div&gt; &lt;div class="preview-movies"&gt;${
+(tl.tiers[t] && tl.tiers[t].length)
+? tl.tiers[t].map(m => escapeHtml(m)).join(', ')
+: '-'
+}</div>
+</div>
+).join('')} &lt;div class="card-actions"&gt; &lt;button onclick="openEdit('${tl.id}')">편집</button>
+<button class="secondary" onclick="shareTierlist('{tl.id}')">삭제</button>
+</div>
+</div>
+).join('')}&lt;/div>;
+}
+
+function renderEdit() {
+const tl = getTierlist(state.currentId);
+if (!tl) {
+location.hash = '';
+return;
+}
+
+document.getElementById('pageTitle').textContent = '✏️ ' + tl.title;
+document.getElementById('headerBtns').innerHTML = &lt;button class="secondary" onclick="shareTierlist('${tl.id}')">🔗 공유 링크 복사</button>
+<button onclick="location.hash=''">← 목록으로</button>
+`;
+
+const main = document.getElementById('main');
+main.innerHTML = &lt;div class="add-movie"&gt; &lt;input type="text" id="movieInput" placeholder="영화 제목을 입력하세요" /&gt; &lt;select id="tierSelect"&gt;${TIERS.map(t => <option value="${t}">${t} 티어&lt;/option>).join('')}
+</select>
+<button onclick="addMovie()">추가</button>
+</div>
+latex
+{TIERS.map(t =&gt; ` &lt;div class="tier-row"&gt; &lt;div class="tier-label tier-
+
+{t}">{t}"
+ondragover="onDragOver(event)"
+ondragleave="onDragLeave(event)"
+ondrop="onDrop(event)">
+latex
+{(tl.tiers[t] || []).map((m, i) =&gt; ` &lt;div class="movie" draggable="true" data-tier="
+
+{t}" data-index="{escapeHtml(m)}</span>
+<button onclick="removeMovie('{i})">✕</button>
+</div>
+).join('')} &lt;/div&gt; &lt;/div&gt;).join('')}
